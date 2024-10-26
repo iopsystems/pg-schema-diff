@@ -232,7 +232,7 @@ func assertValidPlan(ctx context.Context,
 		return fmt.Errorf("inserting schema in temporary database: %w", err)
 	}
 
-	if err := executeStatementsIgnoreTimeouts(ctx, tempDb.ConnPool, plan.Statements); err != nil {
+	if err := executeStatementsIgnoreTimeouts(ctx, tempDb.ConnPool, plan.Statements, planOptions.transactional); err != nil {
 		return fmt.Errorf("running migration plan: %w", err)
 	}
 
@@ -273,7 +273,7 @@ func setSchemaForEmptyDatabase(ctx context.Context, emptyDb *tempdb.Database, ta
 	if err != nil {
 		return fmt.Errorf("building schema diff: %w", err)
 	}
-	if err := executeStatementsIgnoreTimeouts(ctx, emptyDb.ConnPool, statements); err != nil {
+	if err := executeStatementsIgnoreTimeouts(ctx, emptyDb.ConnPool, statements, options.transactional); err != nil {
 		return fmt.Errorf("executing statements: %w\n%# v", err, pretty.Formatter(statements))
 	}
 	return nil
@@ -300,9 +300,13 @@ func assertMigratedSchemaMatchesTarget(migratedSchema, targetSchema schema.Schem
 	return nil
 }
 
+type DbConn interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 // executeStatementsIgnoreTimeouts executes the statements using the sql connection but ignores any provided timeouts.
 // This function is currently used to validate migration plans.
-func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, statements []Statement) error {
+func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, statements []Statement, useTx bool) error {
 	conn, err := connPool.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("getting connection from pool: %w", err)
@@ -313,6 +317,21 @@ func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, stat
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("SET SESSION statement_timeout = %d", (10*time.Second).Milliseconds())); err != nil {
 		return fmt.Errorf("setting statement timeout: %w", err)
 	}
+
+	var dbconn DbConn
+	var txn *sql.Tx
+
+	if useTx {
+		txn, err = conn.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("executing BEGIN: %w", err)
+		}
+
+		dbconn = txn
+	} else {
+		dbconn = conn
+	}
+
 	// Due to the way *sql.Db works, when a statement_timeout is set for the session, it will NOT reset
 	// by default when it's returned to the pool.
 	//
@@ -320,9 +339,16 @@ func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, stat
 	// must be executed within its own transaction block. Postgres will error if you try to set a TRANSACTION-level
 	// timeout for it. SESSION-level statement_timeouts are respected by `ADD INDEX CONCURRENTLY`
 	for _, stmt := range statements {
-		if _, err := conn.ExecContext(ctx, stmt.ToSQL()); err != nil {
+		if _, err := dbconn.ExecContext(ctx, stmt.ToSQL()); err != nil {
 			return fmt.Errorf("executing migration statement: %s: %w", stmt, err)
 		}
 	}
+
+	if txn != nil {
+		if err = txn.Commit(); err != nil {
+			return fmt.Errorf("committing transaction: %w", err)
+		}
+	}
+
 	return nil
 }
