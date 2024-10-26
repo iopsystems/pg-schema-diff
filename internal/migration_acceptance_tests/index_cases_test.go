@@ -822,6 +822,77 @@ var indexAcceptanceTestCases = []acceptanceTestCase{
 			diff.MigrationHazardTypeIndexDropped,
 		},
 	},
+	{
+		name: "Create new index transactionally",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{`
+            CREATE TABLE foobar(
+				foo TEXT,
+				bar int
+			);
+		`},
+		newSchemaDDL: []string{`
+			CREATE TABLE foobar(
+				foo TEXT,
+				bar int
+			);
+			CREATE INDEX new_idx ON foobar(bar);
+		`},
+		expectedPlanDDL: []string{
+			"CREATE INDEX new_idx ON public.foobar USING btree (bar)",
+		},
+		expectedHazardTypes: []diff.MigrationHazardType{
+			diff.MigrationHazardTypeAcquiresShareLock,
+		},
+		expectDDLCanRunInTransaction: true,
+	},
+	{
+		name: "Drop index transactionally",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{`
+			CREATE TABLE foobar(
+				foo TEXT,
+				bar int
+			);
+			CREATE INDEX idx ON foobar(bar);
+		`},
+		newSchemaDDL: []string{`
+			CREATE TABLE foobar(
+				foo TEXT,
+				bar int
+			);
+		`},
+		expectedPlanDDL: []string{
+			"DROP INDEX \"public\".\"idx\"",
+		},
+		expectedHazardTypes: []diff.MigrationHazardType{
+			diff.MigrationHazardTypeAcquiresAccessExclusiveLock,
+			diff.MigrationHazardTypeIndexDropped,
+		},
+		expectDDLCanRunInTransaction: true,
+	},
+	{
+		name: "Alter table to have a PRIMARY KEY transactionally",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{`
+			CREATE TABLE foobar(id INT NOT NULL);
+		`},
+		newSchemaDDL: []string{`
+			CREATE TABLE foobar(
+				id INT PRIMARY KEY NOT NULL
+			);
+		`},
+		expectedHazardTypes: []diff.MigrationHazardType{
+			diff.MigrationHazardTypeAcquiresShareLock,
+		},
+		expectDDLCanRunInTransaction: true,
+	},
 }
 
 func (suite *acceptanceTestSuite) TestIndexTestCases() {

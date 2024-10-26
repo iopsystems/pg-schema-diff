@@ -59,6 +59,9 @@ type (
 		//
 		// If no expectedDBSchemaDDL is specified, the newSchemaDDL will be used
 		expectedDBSchemaDDL []string
+
+		// If true, then the plan DDL will be run in a transaction to verify that it can do so.
+		expectDDLCanRunInTransaction bool
 	}
 
 	acceptanceTestSuite struct {
@@ -165,7 +168,7 @@ func (suite *acceptanceTestSuite) runTest(tc acceptanceTestCase) {
 	oldDbDump, err := pgdump.GetDump(oldDb, pgdump.WithSchemaOnly())
 	suite.Require().NoError(err)
 
-	newDbDump := suite.directlyRunDDLAndGetDump(tc.expectedDBSchemaDDL)
+	newDbDump := suite.directlyRunDDLAndGetDump(tc.expectedDBSchemaDDL, tc.expectDDLCanRunInTransaction)
 	suite.Equal(newDbDump, oldDbDump, prettySprintPlan(plan))
 
 	if tc.expectedPlanDDL != nil {
@@ -194,11 +197,16 @@ func (suite *acceptanceTestSuite) assertValidPlan(plan diff.Plan) {
 	}
 }
 
-func (suite *acceptanceTestSuite) directlyRunDDLAndGetDump(ddl []string) string {
+func (suite *acceptanceTestSuite) directlyRunDDLAndGetDump(ddl []string, useTx bool) string {
 	newDb, err := suite.pgEngine.CreateDatabase()
 	suite.Require().NoError(err)
 	defer newDb.DropDB()
-	suite.Require().NoError(applyDDL(newDb, ddl))
+
+	if useTx {
+		suite.Require().NoError(applyDDLInTx(newDb, ddl))
+	} else {
+		suite.Require().NoError(applyDDL(newDb, ddl))
+	}
 
 	newDbDump, err := pgdump.GetDump(newDb, pgdump.WithSchemaOnly())
 	suite.Require().NoError(err)
@@ -218,6 +226,33 @@ func applyDDL(db *pgengine.DB, ddl []string) error {
 			return fmt.Errorf("DDL:\n: %w"+stmt, err)
 		}
 	}
+	return nil
+}
+
+func applyDDLInTx(db *pgengine.DB, ddl []string) error {
+	conn, err := sql.Open("pgx", db.GetDSN())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	tx, err := conn.Begin()
+	if err != nil {
+		return fmt.Errorf("Begin: %w", err)
+	}
+
+	for _, stmt := range ddl {
+		_, err := tx.Exec(stmt)
+		if err != nil {
+			return fmt.Errorf("DDL:\n: %w"+stmt, err)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("DDL Commit: %w", err)
+	}
+
 	return nil
 }
 

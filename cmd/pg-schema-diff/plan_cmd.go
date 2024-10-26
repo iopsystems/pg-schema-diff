@@ -89,6 +89,7 @@ type (
 
 		dataPackNewTables     bool
 		disablePlanValidation bool
+		transactional         bool
 
 		statementTimeoutModifiers []string
 		lockTimeoutModifiers      []string
@@ -157,6 +158,7 @@ func createPlanFlags(cmd *cobra.Command) *planFlags {
 	cmd.Flags().BoolVar(&flags.dataPackNewTables, "data-pack-new-tables", true, "If set, will data pack new tables in the plan to minimize table size (re-arranges columns).")
 	cmd.Flags().BoolVar(&flags.disablePlanValidation, "disable-plan-validation", false, "If set, will disable plan validation. Plan validation runs the migration against a temporary"+
 		"database with an identical schema to the original, asserting that the generated plan actually migrates the schema to the desired target.")
+	cmd.Flags().BoolVar(&flags.transactional, "transactional", false, "Generate statements that can be run within a database transaction.")
 
 	timeoutModifierFlagVar(cmd, &flags.statementTimeoutModifiers, "statement", "t")
 	timeoutModifierFlagVar(cmd, &flags.lockTimeoutModifiers, "lock", "l")
@@ -215,6 +217,9 @@ func parsePlanConfig(p planFlags) (planConfig, error) {
 	}
 	if p.disablePlanValidation {
 		opts = append(opts, diff.WithDoNotValidatePlan())
+	}
+	if p.transactional {
+		opts = append(opts, diff.WithTransactional())
 	}
 
 	var statementTimeoutModifiers []timeoutModifier

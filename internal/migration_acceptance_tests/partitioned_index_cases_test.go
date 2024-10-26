@@ -1260,6 +1260,40 @@ var partitionedIndexAcceptanceTestCases = []acceptanceTestCase{
 			`,
 		},
 	},
+	{
+		name: "Add a partitioned index transactionally",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{
+			`
+            CREATE TABLE test(
+                id INT,
+                foo TEXT
+            ) PARTITION BY LIST(foo);
+            CREATE TABLE test_1 PARTITION OF test FOR VALUES IN ('test_1');
+            CREATE TABLE test_2 PARTITION OF test FOR VALUES IN ('test_2');
+            CREATE TABLE test_3 PARTITION OF test FOR VALUES IN ('test_3');
+            `,
+		},
+		newSchemaDDL: []string{
+			`
+            CREATE TABLE test(
+                id INT,
+                foo TEXT
+            ) PARTITION BY LIST(foo);
+            CREATE TABLE test_1 PARTITION OF test FOR VALUES IN ('test_1');
+            CREATE TABLE test_2 PARTITION OF test FOR VALUES IN ('test_2');
+            CREATE TABLE test_3 PARTITION OF test FOR VALUES IN ('test_3');
+
+            CREATE INDEX test_idx ON test(foo, id);
+            `,
+		},
+		expectedHazardTypes: []diff.MigrationHazardType{
+			diff.MigrationHazardTypeAcquiresShareLock,
+		},
+		expectDDLCanRunInTransaction: true,
+	},
 }
 
 func (suite *acceptanceTestSuite) TestPartitionedIndexTestCases() {

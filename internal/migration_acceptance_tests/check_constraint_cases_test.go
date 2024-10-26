@@ -549,6 +549,53 @@ var checkConstraintCases = []acceptanceTestCase{
 			`,
 		},
 	},
+	{
+		name: "Transaction constraint addition should not use NOT VALID",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{
+			`
+			CREATE TABLE tbl(value INT);
+			`,
+		},
+		newSchemaDDL: []string{
+			`
+			CREATE TABLE tbl(
+				value INT CHECK(value >= 0)
+			)
+			`,
+		},
+		expectedHazardTypes: []diff.MigrationHazardType{
+			diff.MigrationHazardTypeAcquiresAccessExclusiveLock,
+		},
+		expectDDLCanRunInTransaction: true,
+	},
+	{
+		name: "Add foreign key constraint transactionally",
+		planOpts: []diff.PlanOpt{
+			diff.WithTransactional(),
+		},
+		oldSchemaDDL: []string{
+			`
+			CREATE TABLE bar(id BIGINT PRIMARY KEY NOT NULL);
+			CREATE TABLE foo(data TEXT);
+			`,
+		},
+		newSchemaDDL: []string{
+			`
+			CREATE TABLE bar(id BIGINT PRIMARY KEY NOT NULL);
+			CREATE TABLE foo(
+				data TEXT,
+				bar BIGINT NOT NULL,
+
+				CONSTRAINT fk_bar FOREIGN KEY(bar) REFERENCES bar(id)
+			);
+			`,
+		},
+		expectedHazardTypes:          []diff.MigrationHazardType{},
+		expectDDLCanRunInTransaction: true,
+	},
 }
 
 func (suite *acceptanceTestSuite) TestCheckConstraintTestCases() {

@@ -134,6 +134,10 @@ type (
 	}
 )
 
+type generatorOptions struct {
+	transactional bool
+}
+
 type schemaDiff struct {
 	oldAndNew[schema.Schema]
 	namedSchemaDiffs          listDiff[schema.NamedSchema, namedSchemaDiff]
@@ -147,8 +151,10 @@ type schemaDiff struct {
 	triggerDiffs              listDiff[schema.Trigger, triggerDiff]
 }
 
-func (sd schemaDiff) resolveToSQL() ([]Statement, error) {
-	return schemaSQLGenerator{}.Alter(sd)
+func (sd schemaDiff) resolveToSQL(options generatorOptions) ([]Statement, error) {
+	return schemaSQLGenerator{
+		options: options,
+	}.Alter(sd)
 }
 
 // The procedure for DIFFING schemas and GENERATING/RESOLVING the SQL required to migrate the old schema to the new schema is
@@ -493,9 +499,11 @@ func buildIndexDiff(deps indexDiffConfig, old, new schema.Index) (diff indexDiff
 	}, recreateIndex, nil
 }
 
-type schemaSQLGenerator struct{}
+type schemaSQLGenerator struct {
+	options generatorOptions
+}
 
-func (schemaSQLGenerator) Alter(diff schemaDiff) ([]Statement, error) {
+func (gen schemaSQLGenerator) Alter(diff schemaDiff) ([]Statement, error) {
 	tablesInNewSchemaByName := buildSchemaObjByNameMap(diff.new.Tables)
 	deletedTablesByName := buildSchemaObjByNameMap(diff.tableDiffs.deletes)
 	addedTablesByName := buildSchemaObjByNameMap(diff.tableDiffs.adds)
@@ -511,6 +519,7 @@ func (schemaSQLGenerator) Alter(diff schemaDiff) ([]Statement, error) {
 		deletedTablesByName:     deletedTablesByName,
 		tablesInNewSchemaByName: tablesInNewSchemaByName,
 		tableDiffsByName:        buildDiffByNameMap[schema.Table, tableDiff](diff.tableDiffs.alters),
+		options:                 gen.options,
 	}), diff.tableDiffs)
 	if err != nil {
 		return nil, fmt.Errorf("resolving table diff: %w", err)
@@ -549,6 +558,8 @@ func (schemaSQLGenerator) Alter(diff schemaDiff) ([]Statement, error) {
 
 		renameSQLVertexGenerator:          renameConflictingIndexesGenerator,
 		attachPartitionSQLVertexGenerator: attachPartitionGenerator,
+
+		options: gen.options,
 	})
 	indexesPartialGraph, err := generatePartialGraph(indexGenerator, diff.indexDiffs)
 	if err != nil {
@@ -704,6 +715,7 @@ type tableSQLVertexGenerator struct {
 	deletedTablesByName     map[string]schema.Table
 	tablesInNewSchemaByName map[string]schema.Table
 	tableDiffsByName        map[string]tableDiff
+	options                 generatorOptions
 }
 
 func (t *tableSQLVertexGenerator) Add(table schema.Table) ([]Statement, error) {
@@ -900,6 +912,7 @@ func (t *tableSQLVertexGenerator) alterBaseTable(diff tableDiff) ([]Statement, e
 		addedColumnsByName:     buildSchemaObjByNameMap(diff.columnsDiff.adds),
 		deletedColumnsByName:   buildSchemaObjByNameMap(diff.columnsDiff.deletes),
 		isNewTable:             false,
+		options:                t.options,
 	})
 	checkConsPartialGraph, err := generatePartialGraph(checkConGenerator, diff.checkConstraintDiff)
 	if err != nil {
@@ -1512,6 +1525,8 @@ type indexSQLVertexGenerator struct {
 	renameSQLVertexGenerator *renameConflictingIndexSQLVertexGenerator
 	// attachPartitionSQLVertexGenerator is used to find if a partition will be attached after an index builds
 	attachPartitionSQLVertexGenerator *attachPartitionSQLVertexGenerator
+
+	options generatorOptions
 }
 
 func (isg *indexSQLVertexGenerator) Add(index schema.Index) ([]Statement, error) {
@@ -1551,7 +1566,13 @@ func (isg *indexSQLVertexGenerator) addIdxStmtsWithHazards(index schema.Index) (
 				LockTimeout: lockTimeoutDefault,
 			}}, nil
 		}
-	} else if !isOnPartitionedTable {
+	} else if isg.options.transactional {
+		createIdxStmtHazards = append(createIdxStmtHazards, MigrationHazard{
+			Type:    MigrationHazardTypeAcquiresShareLock,
+			Message: "This will lock writes to the owning table while the index is being created.",
+		})
+		createIdxStmtTimeout = lockTimeoutDefault
+	} else {
 		// Only indexes on non-partitioned tables can be created concurrently
 		concurrentCreateIdxStmt, err := index.GetIndexDefStmt.ToCreateIndexConcurrently()
 		if err != nil {
@@ -1639,9 +1660,10 @@ func (isg *indexSQLVertexGenerator) Delete(index schema.Index) ([]Statement, err
 	var dropIndexStmtHazards []MigrationHazard
 	concurrentlyModifier := "CONCURRENTLY "
 	dropIndexStmtTimeout := statementTimeoutConcurrentIndexDrop
+
 	if isOnPartitionedTable, err := isg.isOnPartitionedTable(index); err != nil {
 		return nil, err
-	} else if isOnPartitionedTable {
+	} else if isOnPartitionedTable || isg.options.transactional {
 		// Currently, postgres has no good way of dropping an index partition concurrently
 		concurrentlyModifier = ""
 		dropIndexStmtTimeout = statementTimeoutDefault
@@ -1834,6 +1856,8 @@ type checkConstraintSQLVertexGenerator struct {
 	addedColumnsByName     map[string]schema.Column
 	deletedColumnsByName   map[string]schema.Column
 	isNewTable             bool
+
+	options generatorOptions
 }
 
 func (csg *checkConstraintSQLVertexGenerator) Add(con schema.CheckConstraint) ([]Statement, error) {
@@ -1844,7 +1868,7 @@ func (csg *checkConstraintSQLVertexGenerator) Add(con schema.CheckConstraint) ([
 	}
 
 	var stmts []Statement
-	if !con.IsValid || csg.isNewTable {
+	if !con.IsValid || csg.isNewTable || csg.options.transactional {
 		stmts = append(stmts, csg.createCheckConstraintStatement(con))
 	} else {
 		// If the check constraint is not on a new table and is marked as valid, we should:
@@ -1867,7 +1891,7 @@ func (csg *checkConstraintSQLVertexGenerator) createCheckConstraintStatement(con
 		sb.WriteString(" NO INHERIT")
 	}
 
-	if !con.IsValid {
+	if !con.IsValid && !csg.options.transactional {
 		sb.WriteString(" NOT VALID")
 	} else {
 		hazards = append(hazards, MigrationHazard{

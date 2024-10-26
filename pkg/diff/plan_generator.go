@@ -33,6 +33,7 @@ type (
 		logger                  log.Logger
 		validatePlan            bool
 		getSchemaOpts           []schema.GetSchemaOpt
+		transactional           bool
 	}
 
 	PlanOpt func(opts *planOptions)
@@ -90,6 +91,14 @@ func WithExcludeSchemas(schemas ...string) PlanOpt {
 func WithGetSchemaOpts(getSchemaOpts ...externalschema.GetSchemaOpt) PlanOpt {
 	return func(opts *planOptions) {
 		opts.getSchemaOpts = append(opts.getSchemaOpts, getSchemaOpts...)
+	}
+}
+
+// WithTransactional configures plan generation to not generate any operations that can not
+// execute within a transaction.
+func WithTransactional() PlanOpt {
+	return func(opts *planOptions) {
+		opts.transactional = true
 	}
 }
 
@@ -190,7 +199,10 @@ func generateMigrationStatements(oldSchema, newSchema schema.Schema, planOptions
 		diff = removeChangesToColumnOrdering(diff)
 	}
 
-	statements, err := diff.resolveToSQL()
+	genOptions := generatorOptions{
+		transactional: planOptions.transactional,
+	}
+	statements, err := diff.resolveToSQL(genOptions)
 	if err != nil {
 		return nil, fmt.Errorf("generating migration statements: %w", err)
 	}
