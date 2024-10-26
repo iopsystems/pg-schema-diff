@@ -4,10 +4,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/iopsystems/pg-schema-diff/internal/schema"
 	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stripe/pg-schema-diff/internal/schema"
 )
 
 type schemaMigrationPlanTestCase struct {

@@ -1,7 +1,7 @@
 package migration_acceptance_tests
 
 import (
-	"github.com/stripe/pg-schema-diff/pkg/diff"
+	"github.com/iopsystems/pg-schema-diff/pkg/diff"
 )
 
 // These are tests for "public" schema" alterations (full migrations)

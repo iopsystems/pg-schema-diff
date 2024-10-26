@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iopsystems/pg-schema-diff/internal/pgengine"
+	internalschema "github.com/iopsystems/pg-schema-diff/internal/schema"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/stretchr/testify/suite"
-	"github.com/stripe/pg-schema-diff/internal/pgengine"
-	internalschema "github.com/stripe/pg-schema-diff/internal/schema"
 
-	"github.com/stripe/pg-schema-diff/pkg/log"
+	"github.com/iopsystems/pg-schema-diff/pkg/log"
 )
 
 type onInstanceTempDbFactorySuite struct {

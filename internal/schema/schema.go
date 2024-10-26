@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"sort"
 
+	"github.com/iopsystems/pg-schema-diff/internal/concurrent"
+	"github.com/iopsystems/pg-schema-diff/internal/queries"
 	"github.com/mitchellh/hashstructure/v2"
-	"github.com/stripe/pg-schema-diff/internal/concurrent"
-	"github.com/stripe/pg-schema-diff/internal/queries"
 )
 
 type (

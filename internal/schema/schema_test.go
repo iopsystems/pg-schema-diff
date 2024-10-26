@@ -6,12 +6,12 @@ import (
 	"io"
 	"testing"
 
+	"github.com/iopsystems/pg-schema-diff/internal/pgengine"
+	"github.com/iopsystems/pg-schema-diff/internal/queries"
 	_ "github.com/jackc/pgx/v4/stdlib"
 	"github.com/kr/pretty"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stripe/pg-schema-diff/internal/pgengine"
-	"github.com/stripe/pg-schema-diff/internal/queries"
 )
 
 type testCase struct {

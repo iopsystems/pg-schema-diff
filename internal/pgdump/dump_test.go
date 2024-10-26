@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/iopsystems/pg-schema-diff/internal/pgdump"
+	"github.com/iopsystems/pg-schema-diff/internal/pgengine"
 	"github.com/stretchr/testify/require"
-	"github.com/stripe/pg-schema-diff/internal/pgdump"
-	"github.com/stripe/pg-schema-diff/internal/pgengine"
 )
 
 func TestGetDump(t *testing.T) {

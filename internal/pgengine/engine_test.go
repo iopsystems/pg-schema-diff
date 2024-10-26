@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"github.com/iopsystems/pg-schema-diff/internal/pgengine"
 	"github.com/stretchr/testify/assert"
-	"github.com/stripe/pg-schema-diff/internal/pgengine"
 
 	"github.com/stretchr/testify/require"
 )
