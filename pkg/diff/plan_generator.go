@@ -232,7 +232,7 @@ func assertValidPlan(ctx context.Context,
 		return fmt.Errorf("inserting schema in temporary database: %w", err)
 	}
 
-	if err := executeStatementsIgnoreTimeouts(ctx, tempDb.ConnPool, plan.Statements, planOptions.transactional); err != nil {
+	if err := executeStatementsIgnoreTimeouts(ctx, tempDb.ConnPool, plan.Statements, planOptions); err != nil {
 		return fmt.Errorf("running migration plan: %w", err)
 	}
 
@@ -269,11 +269,13 @@ func setSchemaForEmptyDatabase(ctx context.Context, emptyDb *tempdb.Database, ta
 		return fmt.Errorf("getting schema from empty database: %w", err)
 	}
 
-	statements, err := generateMigrationStatements(startingSchema, targetSchema, &planOptions{})
+	statements, err := generateMigrationStatements(startingSchema, targetSchema, &planOptions{
+		transactional: options.transactional,
+	})
 	if err != nil {
 		return fmt.Errorf("building schema diff: %w", err)
 	}
-	if err := executeStatementsIgnoreTimeouts(ctx, emptyDb.ConnPool, statements, options.transactional); err != nil {
+	if err := executeStatementsIgnoreTimeouts(ctx, emptyDb.ConnPool, statements, options); err != nil {
 		return fmt.Errorf("executing statements: %w\n%# v", err, pretty.Formatter(statements))
 	}
 	return nil
@@ -306,7 +308,7 @@ type DbConn interface {
 
 // executeStatementsIgnoreTimeouts executes the statements using the sql connection but ignores any provided timeouts.
 // This function is currently used to validate migration plans.
-func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, statements []Statement, useTx bool) error {
+func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, statements []Statement, plan *planOptions) error {
 	conn, err := connPool.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("getting connection from pool: %w", err)
@@ -321,7 +323,7 @@ func executeStatementsIgnoreTimeouts(ctx context.Context, connPool *sql.DB, stat
 	var dbconn DbConn
 	var txn *sql.Tx
 
-	if useTx {
+	if plan.transactional {
 		txn, err = conn.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("executing BEGIN: %w", err)
